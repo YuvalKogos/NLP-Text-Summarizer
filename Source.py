@@ -28,145 +28,6 @@ OUTPUT_PATH = ''
 LOAD_PRETRAINED_MODEL = False
 
 
-class LSTM_Model:
-    def __init__(self,inputs_length,outputs_length):
-        from keras import backend as K 
-        K.clear_session()
-
-        #if not load_model:
-        #latent_dim = LSTM layer num nodes
-        latent_dim = 300
-        embedding_dim=100
-        max_text_len = 500
-        self.embedding_dim = embedding_dim
-        self.max_text_len = max_text_len
-        self.latent_dim = latent_dim
-
-        # Encoder
-        encoder_inputs = Input(shape=(max_text_len,))
-
-        #embedding layer
-        enc_emb =  Embedding(inputs_length, embedding_dim,trainable=True)(encoder_inputs)
-
-        #encoder lstm 1
-        encoder_lstm1 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
-        encoder_output1, state_h1, state_c1 = encoder_lstm1(enc_emb)
-
-        #encoder lstm 2
-        encoder_lstm2 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
-        encoder_output2, state_h2, state_c2 = encoder_lstm2(encoder_output1)
-
-        #encoder lstm 3
-        encoder_lstm3 = LSTM(latent_dim, return_state=True, return_sequences=True,dropout=0.4,recurrent_dropout=0.4)
-        encoder_outputs, state_h, state_c= encoder_lstm3(encoder_output2)
-
-        # Set up the decoder, using `encoder_states` as initial state.
-        decoder_inputs = Input(shape=(None,))
-
-        #embedding layer
-        dec_emb_layer = Embedding(outputs_length, embedding_dim,trainable=True)
-        dec_emb = dec_emb_layer(decoder_inputs)
-
-        decoder_lstm = LSTM(latent_dim, return_sequences=True, return_state=True,dropout=0.4,recurrent_dropout=0.2)
-        decoder_outputs,decoder_fwd_state, decoder_back_state = decoder_lstm(dec_emb,initial_state=[state_h, state_c])
-
-        # Attention layer
-        attn_layer = AttentionLayer(name='attention_layer')
-        attn_out, attn_states = attn_layer([encoder_outputs, decoder_outputs])
-
-        # Concat attention input and decoder LSTM output
-        decoder_concat_input = Concatenate(axis=-1, name='concat_layer')([decoder_outputs, attn_out])
-
-        #dense layer
-        decoder_dense =  TimeDistributed(Dense(outputs_length, activation='softmax'))
-        decoder_outputs = decoder_dense(decoder_concat_input)
-
-        # Define the model 
-        self.model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
-        print(self.model.summary())
-
-        #Assign a dictionary that represents each layer
-        self.layers = {'encoder_inputs' : encoder_inputs,
-                       'enc_emb' : enc_emb,
-                       'encoder_lstm1': encoder_lstm1,
-                       'encoder_lstm2':encoder_lstm2,
-                       'encoder_lstm3':encoder_lstm3,
-                       'decoder_inputs' : decoder_inputs,
-                       'dec_emb_layer': dec_emb_layer,
-                       'decoder_lstm' : decoder_lstm,
-                       'attn_layer' : attn_layer,
-                       'decoder_dense' : decoder_dense                 
-        }
-
-        self.hidden_states = {'encoder lstm 1' : [state_h1, state_c1],
-                              'encoder lstm 2' : [state_h2, state_c2],
-                              'encoder lstm 3' : [state_h, state_c],
-                              'decoder' : [decoder_fwd_state, decoder_back_state],
-                              'attn state' : [attn_states]
-        }
-
-        self.inputs = {'encoder_inputs' : encoder_inputs,
-                        'decoder_inputs' : decoder_inputs
-        }
-
-        self.outputs = {'encoder_output1' : encoder_output1,
-                        'encoder_output2' : encoder_output2,
-                        'encoder_outputs' : encoder_outputs,
-                        'decoder_outputs' : decoder_outputs,
-                        'attn_out' : attn_out
-        }
-
-
-    def Train(self,x_tr,y_tr,x_val,y_val,epochs = 10,plot_loss_curve = True):
-        es = EarlyStopping(monitor='val_loss', mode='min', verbose=1,patience=2)
-        #Compile the model
-        self.model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
-        #Train the model
-        history=self.model.fit([x_tr,y_tr[:,:-1]], y_tr.reshape(y_tr.shape[0],y_tr.shape[1], 1)[:,1:] ,epochs=epochs,callbacks=[es],batch_size=128, validation_data=([x_val,y_val[:,:-1]], y_val.reshape(y_val.shape[0],y_val.shape[1], 1)[:,1:]))
-        self.history = history
-        #Plot train + val loss
-        if plot_loss_curve:
-            plt.plot(history.history['loss'], label='train')
-            plt.plot(history.history['val_loss'], label='test')
-
-
-    def Inference(self):
-        # Encode the input sequence to get the feature vector
-        encoder_inputs = self.layers['encoder_inputs']
-        #encoder_inputs = Input(shape=(500,))
-        state_h,state_c = self.hidden_states['encoder lstm 3'][0], self.hidden_states['encoder lstm 3'][1]
-
-        encoder_model = Model(inputs=encoder_inputs,outputs=[self.outputs['encoder_outputs'], state_h, state_c])
-        #print(encoder_model.summery())
-        latent_dim = self.latent_dim
-        #embedding_dim=100
-        max_text_len = 500
-        # Decoder setup
-        # Below tensors will hold the states of the previous time step
-        decoder_state_input_h = Input(shape=(latent_dim,))
-        decoder_state_input_c = Input(shape=(latent_dim,))
-        decoder_hidden_state_input = Input(shape=(max_text_len,latent_dim))
-
-        # Get the embeddings of the decoder sequence
-        dec_emb2= self.layers['dec_emb_layer'](self.inputs['decoder_inputs']) 
-        # To predict the next word in the sequence, set the initial states to the states from the previous time step
-        decoder_outputs2, state_h2, state_c2 = self.layers['decoder_lstm'](dec_emb2, initial_state=[decoder_state_input_h, decoder_state_input_c])
-
-        #attention inference
-        attn_out_inf, attn_states_inf = self.layers['attn_layer']([decoder_hidden_state_input, decoder_outputs2])
-        decoder_inf_concat = Concatenate(axis=-1, name='concat')([decoder_outputs2, attn_out_inf])
-
-        # A dense softmax layer to generate prob dist. over the target vocabulary
-        decoder_outputs2 = self.layers['decoder_dense'](decoder_inf_concat) 
-
-        # Final decoder model
-        decoder_model = Model(
-            [self.inputs['decoder_inputs']] + [decoder_hidden_state_input,decoder_state_input_h, decoder_state_input_c],
-            [decoder_outputs2] + [state_h2, state_c2])
-
-
-        return encoder_model,decoder_model
-
 
 
 class Preproccesor:
@@ -414,6 +275,145 @@ class Preproccesor:
                 newString=newString+self.y_tokenizer.index_word[i]+' '
         return newString
 
+
+class LSTM_Model:
+    def __init__(self,inputs_length,outputs_length):
+        from keras import backend as K 
+        K.clear_session()
+
+        #if not load_model:
+        #latent_dim = LSTM layer num nodes
+        latent_dim = 300
+        embedding_dim=100
+        max_text_len = 500
+        self.embedding_dim = embedding_dim
+        self.max_text_len = max_text_len
+        self.latent_dim = latent_dim
+
+        # Encoder
+        encoder_inputs = Input(shape=(max_text_len,))
+
+        #embedding layer
+        enc_emb =  Embedding(inputs_length, embedding_dim,trainable=True)(encoder_inputs)
+
+        #encoder lstm 1
+        encoder_lstm1 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
+        encoder_output1, state_h1, state_c1 = encoder_lstm1(enc_emb)
+
+        #encoder lstm 2
+        encoder_lstm2 = LSTM(latent_dim,return_sequences=True,return_state=True,dropout=0.4,recurrent_dropout=0.4)
+        encoder_output2, state_h2, state_c2 = encoder_lstm2(encoder_output1)
+
+        #encoder lstm 3
+        encoder_lstm3 = LSTM(latent_dim, return_state=True, return_sequences=True,dropout=0.4,recurrent_dropout=0.4)
+        encoder_outputs, state_h, state_c= encoder_lstm3(encoder_output2)
+
+        # Set up the decoder, using `encoder_states` as initial state.
+        decoder_inputs = Input(shape=(None,))
+
+        #embedding layer
+        dec_emb_layer = Embedding(outputs_length, embedding_dim,trainable=True)
+        dec_emb = dec_emb_layer(decoder_inputs)
+
+        decoder_lstm = LSTM(latent_dim, return_sequences=True, return_state=True,dropout=0.4,recurrent_dropout=0.2)
+        decoder_outputs,decoder_fwd_state, decoder_back_state = decoder_lstm(dec_emb,initial_state=[state_h, state_c])
+
+        # Attention layer
+        attn_layer = AttentionLayer(name='attention_layer')
+        attn_out, attn_states = attn_layer([encoder_outputs, decoder_outputs])
+
+        # Concat attention input and decoder LSTM output
+        decoder_concat_input = Concatenate(axis=-1, name='concat_layer')([decoder_outputs, attn_out])
+
+        #dense layer
+        decoder_dense =  TimeDistributed(Dense(outputs_length, activation='softmax'))
+        decoder_outputs = decoder_dense(decoder_concat_input)
+
+        # Define the model 
+        self.model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
+        print(self.model.summary())
+
+        #Assign a dictionary that represents each layer
+        self.layers = {'encoder_inputs' : encoder_inputs,
+                       'enc_emb' : enc_emb,
+                       'encoder_lstm1': encoder_lstm1,
+                       'encoder_lstm2':encoder_lstm2,
+                       'encoder_lstm3':encoder_lstm3,
+                       'decoder_inputs' : decoder_inputs,
+                       'dec_emb_layer': dec_emb_layer,
+                       'decoder_lstm' : decoder_lstm,
+                       'attn_layer' : attn_layer,
+                       'decoder_dense' : decoder_dense                 
+        }
+
+        self.hidden_states = {'encoder lstm 1' : [state_h1, state_c1],
+                              'encoder lstm 2' : [state_h2, state_c2],
+                              'encoder lstm 3' : [state_h, state_c],
+                              'decoder' : [decoder_fwd_state, decoder_back_state],
+                              'attn state' : [attn_states]
+        }
+
+        self.inputs = {'encoder_inputs' : encoder_inputs,
+                        'decoder_inputs' : decoder_inputs
+        }
+
+        self.outputs = {'encoder_output1' : encoder_output1,
+                        'encoder_output2' : encoder_output2,
+                        'encoder_outputs' : encoder_outputs,
+                        'decoder_outputs' : decoder_outputs,
+                        'attn_out' : attn_out
+        }
+
+
+    def Train(self,x_tr,y_tr,x_val,y_val,epochs = 10,plot_loss_curve = True):
+        es = EarlyStopping(monitor='val_loss', mode='min', verbose=1,patience=2)
+        #Compile the model
+        self.model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
+        #Train the model
+        history=self.model.fit([x_tr,y_tr[:,:-1]], y_tr.reshape(y_tr.shape[0],y_tr.shape[1], 1)[:,1:] ,epochs=epochs,callbacks=[es],batch_size=128, validation_data=([x_val,y_val[:,:-1]], y_val.reshape(y_val.shape[0],y_val.shape[1], 1)[:,1:]))
+        self.history = history
+        #Plot train + val loss
+        if plot_loss_curve:
+            plt.plot(history.history['loss'], label='train')
+            plt.plot(history.history['val_loss'], label='test')
+
+
+    def Inference(self):
+        # Encode the input sequence to get the feature vector
+        encoder_inputs = self.layers['encoder_inputs']
+        #encoder_inputs = Input(shape=(500,))
+        state_h,state_c = self.hidden_states['encoder lstm 3'][0], self.hidden_states['encoder lstm 3'][1]
+
+        encoder_model = Model(inputs=encoder_inputs,outputs=[self.outputs['encoder_outputs'], state_h, state_c])
+        #print(encoder_model.summery())
+        latent_dim = self.latent_dim
+        #embedding_dim=100
+        max_text_len = 500
+        # Decoder setup
+        # Below tensors will hold the states of the previous time step
+        decoder_state_input_h = Input(shape=(latent_dim,))
+        decoder_state_input_c = Input(shape=(latent_dim,))
+        decoder_hidden_state_input = Input(shape=(max_text_len,latent_dim))
+
+        # Get the embeddings of the decoder sequence
+        dec_emb2= self.layers['dec_emb_layer'](self.inputs['decoder_inputs']) 
+        # To predict the next word in the sequence, set the initial states to the states from the previous time step
+        decoder_outputs2, state_h2, state_c2 = self.layers['decoder_lstm'](dec_emb2, initial_state=[decoder_state_input_h, decoder_state_input_c])
+
+        #attention inference
+        attn_out_inf, attn_states_inf = self.layers['attn_layer']([decoder_hidden_state_input, decoder_outputs2])
+        decoder_inf_concat = Concatenate(axis=-1, name='concat')([decoder_outputs2, attn_out_inf])
+
+        # A dense softmax layer to generate prob dist. over the target vocabulary
+        decoder_outputs2 = self.layers['decoder_dense'](decoder_inf_concat) 
+
+        # Final decoder model
+        decoder_model = Model(
+            [self.inputs['decoder_inputs']] + [decoder_hidden_state_input,decoder_state_input_h, decoder_state_input_c],
+            [decoder_outputs2] + [state_h2, state_c2])
+
+
+        return encoder_model,decoder_model
 
 
 
