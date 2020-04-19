@@ -2,7 +2,7 @@
 Creating a text summarizer using seq2seq-autoencoder-LSTM network architecture.
 Developing a RNN (LSTM) network that recieves a text input, procceses it, and generates a summarize output.
 
-The script contains two class which demonstrates the flow of the process:
+The source.py script contains two class which demonstrates the flow of the process:
 1. Preproccesor: preprocess the input text using the following steps:
    - Lower case everything
    - Remove punctuation marks
