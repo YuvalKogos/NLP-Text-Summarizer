@@ -23,20 +23,31 @@ TODO: Try to replace the encoder with Google's pretrained Word2Vec model, and re
 The model has been trained on the Amazon's food reviews dataset, and those are some of the results:
 
 
-Data: great price fast shipping best chips better ingredients less calories snack foods plus taste like real chips \n
-Original summary: pop chips are the best \n
+Data: great price fast shipping best chips better ingredients less calories snack foods plus taste like real chips 
+
+Original summary: pop chips are the best 
+
 Prediction:  amazing recommended chips
 
-Data: dog loves lickety stik bacon flavor since likes much plan getting flavors great liquid treat dog highly recommend lickety stik \n
-Original summary: great dog treat \n
+
+Data: dog loves lickety stik bacon flavor since likes much plan getting flavors great liquid treat dog highly recommend lickety stik 
+
+Original summary: great dog treat 
+
 Prediction:  dog loves them
 
-Data: good soft drink smooth strawberry cream soda tasty \n
-Original summary: good stuff \n
+
+Data: good soft drink smooth strawberry cream soda tasty 
+
+Original summary: good stuff 
+
 Prediction:  good stuff
 
-Review: drink cups day verona italian french roast coffee wanted try lower acid version brand coffee smells tastes like vinegar totally unpalatable better drinking water acid coffee bothers \n
-Original summary: single worst coffee ever \n
+
+Review: drink cups day verona italian french roast coffee wanted try lower acid version brand coffee smells tastes like vinegar totally unpalatable better drinking water acid coffee bothers 
+
+Original summary: single worst coffee ever 
+
 Predicted summary:  very bad coffee
 
 
