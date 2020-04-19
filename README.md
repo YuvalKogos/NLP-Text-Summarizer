@@ -52,4 +52,4 @@ Predicted summary:  very bad coffee
 
 
 
-*BBC news summarization exmaples will be uploaded soon.
+*BBC news summarization examples will be uploaded soon.
